@@ -4,14 +4,20 @@ import com.amazon.ata.advertising.service.model.RequestContext;
 import com.amazon.ata.advertising.service.targeting.predicate.TargetingPredicate;
 import com.amazon.ata.advertising.service.targeting.predicate.TargetingPredicateResult;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.function.Predicate;
 
 /**
  * Evaluates TargetingPredicates for a given RequestContext.
  */
 public class TargetingEvaluator {
-    public static final boolean IMPLEMENTED_STREAMS = false;
-    public static final boolean IMPLEMENTED_CONCURRENCY = false;
+    public static final boolean IMPLEMENTED_STREAMS = true;
+    public static final boolean IMPLEMENTED_CONCURRENCY = true;
     private final RequestContext requestContext;
 
     /**
@@ -19,6 +25,7 @@ public class TargetingEvaluator {
      * @param requestContext Context that can be used to evaluate the predicates.
      */
     public TargetingEvaluator(RequestContext requestContext) {
+
         this.requestContext = requestContext;
     }
 
@@ -31,15 +38,25 @@ public class TargetingEvaluator {
     public TargetingPredicateResult evaluate(TargetingGroup targetingGroup) {
         List<TargetingPredicate> targetingPredicates = targetingGroup.getTargetingPredicates();
         boolean allTruePredicates = true;
-        for (TargetingPredicate predicate : targetingPredicates) {
-            TargetingPredicateResult predicateResult = predicate.evaluate(requestContext);
-            if (!predicateResult.isTrue()) {
+        ExecutorService executorService = Executors.newCachedThreadPool();
+        List<Future<TargetingPredicateResult>> futureList = new ArrayList<>();
+        for (TargetingPredicate predicate : targetingPredicates){
+            futureList.add(executorService.submit(() -> predicate.evaluate(requestContext)));
+        }
+        for (Future<TargetingPredicateResult> f : futureList) {
+            try { if (!f.get().equals(TargetingPredicateResult.TRUE)){
                 allTruePredicates = false;
-                break;
+            }
+            } catch (InterruptedException | ExecutionException e){
+                e.printStackTrace();
             }
         }
 
         return allTruePredicates ? TargetingPredicateResult.TRUE :
-                                   TargetingPredicateResult.FALSE;
+                TargetingPredicateResult.FALSE;
     }
 }
+
+
+
+
