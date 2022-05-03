@@ -8,6 +8,7 @@ import com.amazon.ata.advertising.service.model.RequestContext;
 import com.amazon.ata.advertising.service.targeting.TargetingEvaluator;
 import com.amazon.ata.advertising.service.targeting.TargetingGroup;
 
+import com.amazon.ata.advertising.service.targeting.predicate.TargetingPredicateResult;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -64,24 +65,28 @@ public class AdvertisementSelectionLogic {
     public GeneratedAdvertisement selectAdvertisement(String customerId, String marketplaceId) {
         TargetingEvaluator targetingEvaluator = new TargetingEvaluator(new RequestContext(customerId, marketplaceId));
         GeneratedAdvertisement generatedAdvertisement = new EmptyGeneratedAdvertisement();
-
         if (StringUtils.isEmpty(marketplaceId)) {
             LOG.warn("MarketplaceId cannot be null or empty. Returning empty ad.");
         } else {
             final List<AdvertisementContent> contents = contentDao.get(marketplaceId);
+            List<AdvertisementContent> goodContent = new ArrayList<>();
+            TreeMap<Double, AdvertisementContent> sortedAds = new TreeMap<>(Comparator.reverseOrder());
+            for (AdvertisementContent content : contents){
+                for (TargetingGroup group : targetingGroupDao.get(content.getContentId())) {
+                    if (targetingEvaluator.evaluate(group).equals(TargetingPredicateResult.TRUE)){
 
-            generatedAdvertisement = contents.stream()
-                    .filter(advertisementContent -> (targetingGroupDao.get(advertisementContent.getContentId())
-                            .stream()
-                            .anyMatch(targetingGroup -> targetingEvaluator.evaluate(targetingGroup)
-                                    .isTrue())))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), list -> {
-                        Collections.shuffle(list);
-                        return list.stream();
-                    }))
-                    .findFirst()
-                    .map(GeneratedAdvertisement::new)
-                    .orElseGet(EmptyGeneratedAdvertisement::new);
+                        sortedAds.put(group.getClickThroughRate(),content);
+
+                    }
+
+                }
+            }
+
+            if (!sortedAds.isEmpty()) {
+                AdvertisementContent mostClickedAdvertisement = sortedAds.firstEntry().getValue();
+                generatedAdvertisement = new GeneratedAdvertisement(mostClickedAdvertisement);
+            }
+
         }
 
         return generatedAdvertisement;
